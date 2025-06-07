@@ -1,0 +1,384 @@
+---
+title: "Stat 346 Project"
+author: "Kevin Kurti, Sebastian Bonnard, Mimi Johnson"
+header-includes:
+- \usepackage{xcolor}
+- \usepackage{bm}
+- \usepackage[Q=yes]{examplep}
+- \usepackage{comment}
+- \newcommand{\benum}{\begin{enumerate}}
+- \newcommand{\eenum}{\end{enumerate}}
+- \usepackage{float}
+- \floatplacement{figure}{H}
+- \usepackage{fvextra}
+- \usepackage{csquotes}
+- \usepackage[T1]{fontenc}
+- "\\usepackage{bold-extra}"
+- \DefineVerbatimEnvironment{Highlighting}{Verbatim}{breaklines,commandchars=\\\{\}}
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, echo = FALSE}
+# loading in data and removing rows prior to Kamala Harris' confirmation as Democratic nominee for the 2024 election
+polling.data <- read.csv("~/Downloads/president_polls.csv")
+polling.data.final <- polling.data[-c(7114:nrow(polling.data)), ]
+
+# subsetting the data for only Donald Trump percentages
+trump.percentages <- subset(polling.data.final, polling.data.final$candidate_name == "Donald Trump")
+trump.percentages$poll.accuracy <- round(trump.percentages$pct - 49.91, 2) # creating response variable
+```
+
+```{r, echo = FALSE}
+library(mosaic)
+library(dplyr)
+
+# recode states into regions
+
+# define the regions
+northeast <- c("Maine CD-1", "Maine CD-2", "New Hampshire", "Vermont", "Massachusetts", "Rhode Island", 
+               "Connecticut", "New York", "Pennsylvania", "New Jersey")
+midwest <- c("Ohio", "Indiana", "Illinois", "Michigan", "Wisconsin", "Minnesota", 
+             "Iowa", "Missouri", "North Dakota", "South Dakota", "Nebraska CD-1", "Nebraska CD-2", "Nebraska CD-3", "Kansas")
+south <- c("Delaware", "Maryland", "Virginia", "West Virginia", 
+           "North Carolina", "South Carolina", "Georgia", "Florida", "Kentucky", 
+           "Tennessee", "Mississippi", "Alabama", "Arkansas", "Louisiana", 
+           "Oklahoma", "Texas")
+west <- c("Montana", "Idaho", "Wyoming", "Colorado", "New Mexico", "Arizona", 
+          "Utah", "Nevada", "Washington", "Oregon", "California", "Alaska", "Hawaii")
+
+# add a new column for regions
+trump.percentages <- trump.percentages %>%
+  mutate(region = case_when(
+    state %in% northeast ~ "Northeast",
+    state %in% midwest ~ "Midwest",
+    state %in% south ~ "South",
+    state %in% west ~ "West",
+    TRUE ~ "National"  # handle any states not listed
+  ))
+
+head(trump.percentages$region)
+
+# recode methodologies 
+
+# define the methods
+online <- c("IVR", "App Panel", "Email", "Online Panel/Probability Panel", "Online Panel/Text", "Online Panel/Text-to-Web", "Text-to-Web/Email", "Text-to-Web/Online Ad", "Online Ad", "Text", "Probability Panel", "Online Panel", "Mail-to-Web", "Text-to-Web")
+phone <- c("Live Phone")
+mixed <- c("IVR/Live Phone/Online Panel", "IVR/Live Phone/Online Panel/Text-to-Web", "IVR/Live Phone/Text-to-Web", "IVR/Live Phone/Text/Online Panel/Email", "IVR/Online Panel", "IVR/Online Panel/Text-to-Web", "IVR/Text", "IVR/Text-to-Web", "Live Phone/Email", "Live Phone/Email/Mail-to-Web", "Live Phone/Online Panel", "Live Phone/Online Panel/App Panel", "Live Phone/Online Panel/Text", "Live Phone/Online Panel/Text-to-Web", "Live Phone/Probability Panel", "Live Phone/Text-to-Web", "Live Phone/Text-to-Web/Email", "Live Phone/Text-to-Web/Email/Mail-to-Web", "Live Phone/Text-to-Web/Email/Mail-to-Web/Mail-to-Phone", "Mail-to-Web/Mail-to-Phone")
+other <- c("")
+
+# add a new column for methods
+trump.percentages <- trump.percentages %>%
+  mutate(method = case_when(
+    methodology %in% online ~ "Online",
+    methodology %in% phone ~ "Phone",
+    methodology %in% mixed ~ "Mixed",
+    methodology %in% other ~ "Other",
+    TRUE ~ "N/A"  # handle any methods not listed
+  ))
+table(trump.percentages$method)
+
+# add time_difference as a variable
+
+# reference date of the election day
+reference_date <- as.Date("11/5/24", format = "%m/%d/%Y")
+
+# convert dates and add time difference categories
+trump.percentages <- trump.percentages %>%
+  mutate(
+    end_date = as.Date(end_date, format = "%m/%d/%Y"),  # convert to date format
+    time_difference_days = as.numeric(difftime(reference_date, end_date, units = "days")),
+    time_difference = case_when(
+      time_difference_days <= 30 ~ "<=1 month",
+      time_difference_days <= 60 ~ "1-2 months",
+      time_difference_days <= 90 ~ "2-3 months",
+      time_difference_days > 90 ~ ">3 months",
+      TRUE ~ ""
+    )
+  )
+
+# adding in a swing state variable
+
+# define the swing states
+swing_states <- c("Pennsylvania", "North Carolina", "Michigan", "Wisconsin", "Nevada", "Arizona", "Georgia")
+
+# add a new column for methods
+trump.percentages <- trump.percentages %>%
+  mutate(swing_state = case_when(
+    state %in% swing_states ~ "Swing State",
+    TRUE ~ "Non-Swing State"  # handle any methods not listed
+  ))
+table(trump.percentages$swing_state)
+
+# recode population
+lv <- c("lv")
+trump.percentages <- trump.percentages %>%
+  mutate(population = case_when(
+    population %in% lv ~ "Likely Voters",
+    TRUE ~ "Other" # handle any methods not listed
+  ))
+table(trump.percentages$population)
+```
+
+```{r, fig.height = 6, fig.width = 12}
+library(ggplot2)
+library(gridExtra)
+
+#Univariate EDA - barplots and histograms
+bar_method <- ggplot(trump.percentages, aes(x = method)) + geom_bar(fill = "skyblue", color = "black") +labs(title = "Frequency of Polling Method", x = "Type of Method", y = "Frequency") + theme_classic()
+bar_time <- ggplot(trump.percentages, aes(x = time_difference)) + geom_bar(fill = "lightgreen", color = "black") +labs(title = "Frequency of Time to Election", x = "Time to election", y = "Frequency") +theme_classic()
+bar_region <- ggplot(trump.percentages, aes(x = region)) + geom_bar(fill = "orchid", color = "black") +labs(title = "Frequency of Regions in Polls", x = "U.S. Census Regions", y = "Frequency") + theme_classic()
+bar_population <- ggplot(trump.percentages, aes(x = population)) + geom_bar(fill = "gold", color = "black") +labs(title = "Frequency of Polling Population", x = "Population", y = "Frequency") + theme_classic()
+bar_partisan <- ggplot(trump.percentages, aes(x = partisan)) + geom_bar(fill = "magenta", color = "black") +labs(title = "Frequency of Partisanship", x = "Affiliation", y = "Frequency") + theme_classic()
+bar_swingstate <- ggplot(trump.percentages, aes(x = swing_state)) + geom_bar(fill = "orangered", color = "black") +labs(title = "Frequency of Swing vs. Non-Swing States", x = "State Relevance", y = "Frequency") + theme_classic()
+
+hist_transparency <- ggplot(trump.percentages, aes(x = transparency_score)) + geom_histogram(bins = 25, fill = "springgreen4", color = "black") +labs(title = "Histogram of Transparency", x = "Transparency Index (538)", y = "Frequency") + theme_classic()
+hist_pollaccuracy <- ggplot(trump.percentages, aes(x = poll.accuracy)) + geom_histogram(bins = 25, fill = "turquoise", color = "black") +labs(title = "Distribution of Poll Accuracy", x = "Poll Accuracy Index", y = "Frequency") + theme_classic()
+hist_samplesize <- ggplot(trump.percentages, aes(x = sample_size)) + geom_histogram(bins = 25, fill = "plum", color = "black") +labs(title = "Distribution of Sample Size", x = "Sample Size", y = "Frequency") + theme_classic()
+hist_pollscore <- ggplot(trump.percentages, aes(x = pollscore)) + geom_histogram(bins = 25, fill = "springgreen4", color = "black") +labs(title = "Histogram of PollScore", x = "PollScore (538)", y = "Frequency") + theme_classic()
+
+
+gs <- list(bar_method, bar_time, bar_region, bar_population, bar_partisan, bar_swingstate) #using arguments within gridExtra for cleaner matrix layout
+lay <- rbind(c(1, 2, 3),
+             c(4, 5,6 ))
+grid.arrange(grobs = gs, layout_matrix = lay)
+hist_pollscore
+hist_pollaccuracy
+hist_samplesize
+```
+
+```{r, results = "asis"}
+# table for numerical summary of continuous variables 
+library(mosaic)
+library(xtable)
+Mean <- round(apply(trump.percentages[, c("poll.accuracy", "sample_size", "pollscore", "transparency_score")], 2, mean, na.rm = TRUE), digits = 3)
+SD <- round(apply(trump.percentages[, c("poll.accuracy", "sample_size", "pollscore", "transparency_score")], 2, sd, na.rm = TRUE), digits = 3)
+Median <- round(apply(trump.percentages[, c("poll.accuracy", "sample_size", "pollscore", "transparency_score")], 2, median, na.rm = TRUE), digits = 3)
+IQR <- round(apply(trump.percentages[, c("poll.accuracy", "sample_size", "pollscore", "transparency_score")], 2, IQR, na.rm = TRUE), digits = 3)
+Min <- round(apply(trump.percentages[, c("poll.accuracy", "sample_size", "pollscore", "transparency_score")], 2, min, na.rm = TRUE), digits = 3)
+Max <- round(apply(trump.percentages[, c("poll.accuracy", "sample_size", "pollscore", "transparency_score")], 2, max, na.rm = TRUE), digits = 3)
+summary.stat <- data.frame(Min, Mean, SD, Median, IQR, Max)
+options(xtable.timestamp = "")
+options(xtable.floating = FALSE)
+rownames(summary.stat) <- c("Poll Accuracy", "Sample Size", "Pollscore", "Transparency Score")
+print(xtable(summary.stat, comment = FALSE))
+```
+
+```{r, warning = FALSE}
+library(GGally)
+trump.percentages$poll.accuracy2 <- (trump.percentages$poll.accuracy + 49.9)/(100)
+trump.percentages$transparency_score <- jitter(trump.percentages$transparency_score)
+trump.percentages$pollscore <- jitter(trump.percentages$pollscore)
+vars <- with(trump.percentages, cbind(poll.accuracy2, sample_size, pollscore, transparency_score))
+ggpairs(vars)
+```
+
+```{r, fig.width=18, fig.height=4}
+box_population <- ggplot(trump.percentages, aes(x = population, y = poll.accuracy)) +
+  geom_boxplot(fill = "seashell", color = "black") +
+  labs(title = "Poll Accuracy by Population Surveyed", x = "Poll Population", y = "Poll Accuracy") +
+  theme_classic()
+box_method <- ggplot(trump.percentages, aes(x = method, y = poll.accuracy)) +
+  geom_boxplot(fill = "turquoise", color = "black") +
+  labs(title = "Poll Accuracy by Method", x = "Method of Polling", y = "Poll Accuracy") +
+  theme_classic()
+box_time <- ggplot(trump.percentages, aes(x = factor(time_difference, levels =c("<=1 month", "1-2 months", "2-3 months", ">3 months")), y = poll.accuracy)) +
+  geom_boxplot(fill = "plum", color = "black") +
+  labs(title = "Poll Accuracy by Time to Election", x = "Time to Election", y = "Poll Accuracy") +
+  theme_classic()
+box_region <- ggplot(trump.percentages, aes(x = region, y = poll.accuracy)) +
+  geom_boxplot(fill = "darkorange", color = "black") +
+  labs(title = "Poll Accuracy by Region", x = "U.S. Census Region", y = "Poll Accuracy") +
+  theme_classic()
+box_swingstate <- ggplot(trump.percentages, aes(x = swing_state, y = poll.accuracy)) +
+  geom_boxplot(fill = "darkmagenta", color = "black") +
+  labs(title = "Poll Accuracy by State Status", x = "State Election Status", y = "Poll Accuracy") +
+  theme_classic()
+
+
+grid.arrange(box_population, box_method, box_time, box_region, box_swingstate, ncol = 5)
+```
+
+```{r, fig.width = 13, fig.height=4, warning=FALSE}
+#interaction plots 
+
+int.plot<- ggplot(trump.percentages, aes(x = sample_size, y = poll.accuracy, color = method)) +
+  geom_point(alpha = 0.6) +  # Add points
+  geom_smooth(method = "lm", se = FALSE) +  # Add regression lines per method
+  labs(title = "Interaction Between Method and Sample Size on Poll Accuracy",
+       x = "Sample Size",
+       y = "Poll Accuracy") +
+  theme_classic()
+trump.percentages$sample_size2 <- ifelse(trump.percentages$sample_size > 15000, NA, trump.percentages$sample_size)
+
+int.plot2<- ggplot(trump.percentages, aes(x = sample_size2, y = poll.accuracy, color = method)) +
+  geom_point(alpha = 0.6) +  # Add points
+  geom_smooth(method = "lm", se = FALSE) +  # Add regression lines per method
+  labs(title = "Interaction Between Method and Sample Size on Poll Accuracy",
+       x = "Sample Size",
+       y = "Poll Accuracy") +
+  theme_classic()
+
+grid.arrange(int.plot, int.plot2, ncol =2)
+```
+
+```{r, fig.height = 4, fig.width = 12}
+# initial model
+polling.line <- lm(poll.accuracy ~ relevel(as.factor(population), ref = "Other") + relevel(as.factor(method), ref = "Online") + relevel(as.factor(region), ref = "National") + time_difference + swing_state + pollscore + transparency_score + I(log10(sample_size)), data = trump.percentages)
+
+# shifting poll.accuracy to be positive and fitting new model
+trump.percentages$poll.accuracy.shifted <- trump.percentages$poll.accuracy + 22.911
+polling.line.shifted <- lm(poll.accuracy.shifted ~ relevel(as.factor(population), ref = "Other") + relevel(as.factor(method), ref = "Online") + relevel(as.factor(region), ref = "National") + time_difference + swing_state + pollscore + transparency_score + I(log10(sample_size)), data = trump.percentages)
+
+# diagnostics for initial model
+library(lindia)
+residual.vs.fitted <- ggplot(polling.line.shifted, aes(x= .fitted, y = .resid)) + geom_point() + geom_hline(yintercept = 0, col = "red", linetype = "dashed") + labs(x = "Fitted Values", y = "Residuals", title = "Residuals vs. Fitted Values") + theme_classic()
+normal.probability.plot <- ggplot(polling.line.shifted, aes(sample = .resid)) + geom_qq() + stat_qq_line() + labs(x = "Theoretical Quantities", y = "Residuals", title = "Normal Probability Plot") + theme_classic()
+box.cox.plot <- gg_boxcox(polling.line.shifted, scale = 0.5, showlambda = FALSE) + ggtitle("Box-Cox Plot") + theme_classic()
+grid.arrange(residual.vs.fitted, normal.probability.plot, box.cox.plot, nrow = 1)
+
+# transforming initial response variable to power 1.5
+trump.percentages$poll.accuracy.tr <- (trump.percentages$poll.accuracy.shifted)^(1.5)
+polling.line.tr <- lm(poll.accuracy.tr ~ relevel(as.factor(population), ref = "Other") + relevel(as.factor(method), ref = "Online") + relevel(as.factor(region), ref = "National") + time_difference + swing_state + pollscore + transparency_score + I(log10(sample_size)), data = trump.percentages)
+
+# transforming initial response variable to be proportions
+trump.percentages$poll.accuracy2 <- (trump.percentages$poll.accuracy + 49.9)/(100)
+polling.line2 <- lm(poll.accuracy2 ~ relevel(as.factor(population), ref = "Other") + relevel(as.factor(method), ref = "Online") + relevel(as.factor(region), ref = "National") + time_difference + swing_state + pollscore + transparency_score + I(log10(sample_size)), data = trump.percentages)
+
+# transforming initial response variable to be log odds
+trump.percentages$poll.accuracy.tr2 <- log(trump.percentages$poll.accuracy2/(1 - trump.percentages$poll.accuracy2))
+polling.line.tr2 <- lm(poll.accuracy.tr2 ~ relevel(as.factor(population), ref = "Other") + relevel(as.factor(method), ref = "Online") + relevel(as.factor(region), ref = "National") + time_difference + swing_state + pollscore + transparency_score + I(log10(sample_size)), data = trump.percentages)
+
+# transforming proportions response variable to power 2
+trump.percentages$poll.accuracy2.tr <- (trump.percentages$poll.accuracy2)^(2)
+polling.line.tr3 <- lm(poll.accuracy2.tr ~ relevel(as.factor(population), ref = "Other") + relevel(as.factor(method), ref = "Online") + relevel(as.factor(region), ref = "National") + time_difference + swing_state + pollscore + transparency_score + I(log10(sample_size)), data = trump.percentages)
+
+# diagnostics for transformed model --> to the power 1.5
+residual.vs.fitted.tr <- ggplot(polling.line.tr, aes(x= .fitted, y = .resid)) + geom_point() + geom_hline(yintercept = 0, col = "red", linetype = "dashed") + labs(x = "Fitted Values", y = "Residuals", title = "Residuals vs. Fitted Values") + theme_classic()
+normal.probability.plot.tr <- ggplot(polling.line.tr, aes(sample = .resid)) + geom_qq() + stat_qq_line() + labs(x = "Theoretical Quantities", y = "Residuals", title = "Normal Probability Plot") + theme_classic()
+box.cox.plot.tr <- gg_boxcox(polling.line.tr, scale = 0.5, showlambda = FALSE) + ggtitle("Box-Cox Plot") + theme_classic()
+grid.arrange(residual.vs.fitted.tr, normal.probability.plot.tr, box.cox.plot.tr, nrow = 1)
+
+# diagnostics for second model --> proportions instead of percentage difference
+residual.vs.fitted2 <- ggplot(polling.line2, aes(x= .fitted, y = .resid)) + geom_point() + geom_hline(yintercept = 0, col = "red", linetype = "dashed") + labs(x = "Fitted Values", y = "Residuals", title = "Residuals vs. Fitted Values") + theme_classic()
+normal.probability.plot2 <- ggplot(polling.line2, aes(sample = .resid)) + geom_qq() + stat_qq_line() + labs(x = "Theoretical Quantities", y = "Residuals", title = "Normal Probability Plot") + theme_classic()
+box.cox.plot2 <- gg_boxcox(polling.line2, scale = 0.5, showlambda = FALSE) + ggtitle("Box-Cox Plot") + theme_classic()
+grid.arrange(residual.vs.fitted2, normal.probability.plot2, box.cox.plot2, nrow = 1)
+
+# diagnostics for third model --> log odds
+residual.vs.fitted.tr2 <- ggplot(polling.line.tr2, aes(x= .fitted, y = .resid)) + geom_point() + geom_hline(yintercept = 0, col = "red", linetype = "dashed") + labs(x = "Fitted Values", y = "Residuals", title = "Residuals vs. Fitted Values") + theme_classic()
+normal.probability.plot.tr2 <- ggplot(polling.line.tr2, aes(sample = .resid)) + geom_qq() + stat_qq_line() + labs(x = "Theoretical Quantities", y = "Residuals", title = "Normal Probability Plot") + theme_classic()
+hist.residuals <- ggplot(polling.line.tr2, aes(x = .resid)) + geom_histogram(color = "black", fill = "gray", bins = 12) + labs(title = "Distribution of Residuals", x = "Residuals", y = "Frequency") + theme_classic()
+grid.arrange(residual.vs.fitted.tr2, normal.probability.plot.tr2, hist.residuals, nrow = 1)
+
+# diagnostics for fourth model --> proportions squared
+residual.vs.fitted.tr3 <- ggplot(polling.line.tr3, aes(x= .fitted, y = .resid)) + geom_point() + geom_hline(yintercept = 0, col = "red", linetype = "dashed") + labs(x = "Fitted Values", y = "Residuals", title = "Residuals vs. Fitted Values") + theme_classic()
+normal.probability.plot.tr3 <- ggplot(polling.line.tr3, aes(sample = .resid)) + geom_qq() + stat_qq_line() + labs(x = "Theoretical Quantities", y = "Residuals", title = "Normal Probability Plot") + theme_classic()
+grid.arrange(residual.vs.fitted.tr3, normal.probability.plot.tr3, nrow = 1)
+```
+
+```{r}
+summary(polling.line.tr2)
+confint(polling.line.tr2)
+```
+
+
+```{r, results = "asis", echo = FALSE}
+# displaying the estimated coefficients of the final multivariate linear regression model in a table
+estimates <- c("-0.207", "0.0330", "0.0207", "0.0577", "0.000778", "-0.0100", "-0.0803", "0.0251", "0.00395", "-0.0742", "-0.0593", "-0.0819", "0.0671", "-0.0261", "-0.00603", "0.0256")
+std.error <- c("0.0514", "0.00799", "0.00942", "0.0160", "0.0118", "0.0144", "0.0150", "0.0134", "0.0152", "0.0125", "0.00879", "0.00970", "0.00964", "0.00623", "0.00146", "0.0143")
+test.statistic <- c("-4.036", "4.124", "2.202", "3.599", "0.066", "-0.693", "-5.369", "1.876", "0.260", "-5.953", "-6.740", "-8.441", "6.959", "-4.185", "-4.128", "1.783")
+p.value <- c("5.66e-05", "3.88e-05", "0.0278", "0.000327", "0.947", "0.488", "8.89e-08", "0.0607", "0.795", "3.12e-09", "2.08e-11", "< 2e-16", "4.68e-12", "2.99e-05", "3.81e-05", "0.0747")
+ci <- c("(-0.308, -0.107)", "(0.0173, 0.0486)", "(0.00227, 0.0392)", "(0.0263, 0.0892)", "(-0.0223, 0.0239)", "(-0.0384, 0.0183)", "(-0.110, -0.0510)", "(-0.00113, 0.0513)", "(-0.0258, 0.0337)", "(-0.0987, -0.0498)", "(-0.0765, -0.0420)", "(-0.101, -0.0629)", "(0.0482, 0.0860)", "(-0.0383, -0.0139)", "(-0.00889, -0.00316)", "(-0.00255, 0.0537)")
+summary.regression.coefficients <- data.frame(estimates, std.error, test.statistic, p.value, ci)
+colnames(summary.regression.coefficients) <- c("Estimates", "Standard Error", "Test Statistic", "P-Value", "95% Confidence Intervals")
+rownames(summary.regression.coefficients) <- c("(Intercept)", "I(Likely Voters)", "I(Mixed)", "I(Other)", "I(Phone)", "I(Midwest)", "I(Northeast)", "I(South)", "I(West)", "I(>3 Months)", "I(1-2 Months)", "I(2-3 Months)", "I(Swing State)", "Pollscore", "Transparency Score", "Log10(Sample Size)")
+options(xtable.timestamp = "")
+print(xtable(summary.regression.coefficients, caption = "Estimated Coefficients of the Final Multivariate Linear Regression Model"), comment = FALSE)
+```
+
+```{r, results = "asis", message = FALSE, warnings = FALSE}
+library(car)
+library(xtable)
+# multicollinearity VIF check
+vif(polling.line.tr2)
+
+# fit three new models and check their adjusted R^2 values
+polling.line.tr5 <- lm(poll.accuracy.tr2 ~ relevel(as.factor(population), ref = "Other") + relevel(as.factor(method), ref = "Online") + relevel(as.factor(region), ref = "National") + time_difference + swing_state + transparency_score + I(log10(sample_size)), data = trump.percentages) # remove pollscore
+polling.line.tr6 <- lm(poll.accuracy.tr2 ~ relevel(as.factor(population), ref = "Other") + relevel(as.factor(method), ref = "Online") + relevel(as.factor(region), ref = "National") + time_difference + swing_state + pollscore + I(log10(sample_size)), data = trump.percentages)     # remove transparency_score
+polling.line.tr7 <- lm(poll.accuracy.tr2 ~ relevel(as.factor(population), ref = "Other") + relevel(as.factor(method), ref = "Online") + relevel(as.factor(region), ref = "National") + time_difference + swing_state + (pollscore + transparency_score) + I(log10(sample_size)), data = trump.percentages)      # add pollscore to transparency_score
+
+c(summary(polling.line.tr2)$adj, summary(polling.line.tr5)$adj, summary(polling.line.tr6)$adj, summary(polling.line.tr7)$adj) # adjusted R^2 values
+
+# presenting VIF check in a table
+Variable <- c("Population", "Method", "Region", "Time Difference", "Swing State", "Pollscore", "Transparency Score", "Log10(Sample Size)")
+GVIF <- c("1.116", "1.340", "2.809", "1.126", "1.892", "1.327", "1.225", "1.788")
+DF <- c("1", "3", "4", "3", "1", "1", "1", "1")
+GVIF2 <- c("1.056", "1.050", "1.138", "1.020", "1.375", "1.152", "1.107", "1.337")
+summary.vif.coefficients <- data.frame(Variable, GVIF, DF, GVIF2)
+colnames(summary.vif.coefficients) <- c("Variable", "GVIF", "Degrees of Freedom", "Adjusted GVIF")
+options(xtable.timestamp = "")
+print(xtable(summary.vif.coefficients, caption = "Estimated Coefficients of the Final Multivariate Linear Regression Model"), comment = FALSE)
+```
+
+```{r}
+# outlier detection
+
+# x outlier plot
+
+
+# cook's distance plot
+plot(cooks.distance(polling.line.tr2),type="b",pch=18,col="red", ylab = "Cook's Distance", main = "Cook's Distance Outlier Detection Plot")
+
+N = 1897
+k = 18
+cutoff = 4/ (N-k-1)
+abline(h=cutoff,lty=2)
+
+```
+
+```{r}
+# best subset selection check
+library(leaps)
+library(HH)
+library(MASS)
+trump.percentages2 <- trump.percentages[, -c(1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 56, 59, 60, 61, 63)]
+
+trump.percentages2$sample_size <- log10(trump.percentages2$sample_size)
+
+regfit_full <- regsubsets(poll.accuracy.tr2 ~ ., data = trump.percentages2)
+(reg_summary <- summaryHH(regfit_full))
+```
+
+```{r}
+# both direction stepwise selection check
+
+step(polling.line.tr2, direction = "both")
+```
+
+```{r}
+# forward stepwise selection check
+polling.line.intercept <- lm(poll.accuracy.tr2 ~ 1, data = trump.percentages2)
+
+step(polling.line.intercept, scope = ~ relevel(as.factor(population), ref = "lv") + relevel(as.factor(method), ref = "Online") + relevel(as.factor(region), ref = "National") + time_difference + swing_state + pollscore + transparency_score + I(log10(sample_size)), direction = "forward", data = trump.percentages2)
+```
+
+```{r}
+summary(lm(formula = poll.accuracy.tr2 ~ time_difference + relevel(as.factor(population), 
+    ref = "lv") + relevel(as.factor(region), ref = "National") + 
+    swing_state + relevel(as.factor(method), ref = "Online") + 
+    I(log10(sample_size)) + pollscore + transparency_score, data = trump.percentages2))
+summary(polling.line.tr2, data = trump.percentages2)
+```
+
+
+```{r}
+summary(lm(poll.accuracy.tr2 ~ relevel(as.factor(population), ref = "lv") + relevel(as.factor(method), ref = "Online") + relevel(as.factor(region), ref = "National") + time_difference + swing_state + pollscore + transparency_score + I(log10(sample_size)) + I(log10(sample_size))*relevel(as.factor(method), ref = "Online"), data = trump.percentages))
+
+```
